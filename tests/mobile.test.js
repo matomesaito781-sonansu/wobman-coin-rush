@@ -8,8 +8,8 @@
   function rng(seed = 101) { return () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; }; }
   const make = index => new World(index, rng(), "portrait");
   for (let i = 0; i < 4; i++) {
-    test(`縦長ステージ${i + 1}：540×800の座標と障害物がフィールド内に収まる`, () => {
-      const w = make(i); assert(w.width === 540 && w.height === 800, "フィールドが縦長ではありません");
+    test(`縦長ステージ${i + 1}：594×800の座標と障害物がフィールド内に収まる`, () => {
+      const w = make(i); assert(w.width === 594 && w.height === 800, "フィールドが縦長ではありません");
       assert(canStand(w.stage, w.player.x, w.player.y), "開始地点が柵と重複");
       for (const rect of w.stage.fences) assert(rect.x >= 0 && rect.y >= 0 && rect.x + rect.width < w.width && rect.y + rect.height < w.height, "柵が範囲外");
       for (const pond of w.stage.ponds) assert(pond.x - pond.rx >= 0 && pond.x + pond.rx < w.width && pond.y - pond.ry >= 0 && pond.y + pond.ry < w.height, "池が範囲外");
@@ -19,8 +19,14 @@
       for (let n = 0; n < 500; n++) {
         w.coins = []; w.spawnCoin(); assert(w.coins.length === 1, "コインが生成されません");
         const c = w.coins[0];
-        assert(canStand(w.stage, c.x, c.y, RADIUS + 7), "柵や範囲外へ出現");
-        assert(!w.stage.ponds.some(p => insidePond(c.x, c.y, p, 28)), "池に出現");
+        assert(canStand(w.stage, c.x, c.y, w.spawnClearance), "柵や範囲外へ出現");
+        assert(!w.stage.ponds.some(p => insidePond(c.x, c.y, p, w.pondClearance)), "池に出現");
+        for (let f = 0; f + 3 < w.stage.fences.length; f += 4) {
+          const g = w.stage.fences.slice(f, f + 4);
+          const left = Math.min(...g.map(r => r.x)), right = Math.max(...g.map(r => r.x + r.width));
+          const top = Math.min(...g.map(r => r.y)), bottom = Math.max(...g.map(r => r.y + r.height));
+          assert(!(c.x > left && c.x < right && c.y > top && c.y < bottom), "閉じた囲いの内部に出現");
+        }
         assert(w.reachable.some(p => Math.hypot(p.x - c.x, p.y - c.y) < 10 && clearSegment(w.stage, p.x, p.y, c.x, c.y)), "到達できません");
       }
     });
@@ -31,17 +37,21 @@
       assert(w.status === "finished" && w.score === 0 && w.player.x === before.x, "終了後に移動・加点");
     });
   }
-  for (const [name, x, y, vector, limit] of [
-    ["左", 240, 220, { x: 1, y: 0 }, p => p.x <= 290 - RADIUS],
-    ["右", 465, 220, { x: -1, y: 0 }, p => p.x >= 420 + RADIUS],
-    ["上", 350, 90, { x: 0, y: 1 }, p => p.y <= 150 - RADIUS],
-    ["下", 350, 350, { x: 0, y: -1 }, p => p.y >= 370 * 800 / 960 + RADIUS]
+  for (const [name, vector] of [
+    ["左", { x: 1, y: 0 }], ["右", { x: -1, y: 0 }],
+    ["上", { x: 0, y: 1 }], ["下", { x: 0, y: -1 }]
   ]) test(`縦長ステージ：最大加速でも柵の${name}側をドラッグですり抜けない`, () => {
-    const w = make(1); w.start(0); w.player.x = x; w.player.y = y; w.boostUntil = 60000;
+    const w = make(1); w.start(0);
+    const g = w.stage.fences.slice(0, 4), radius = w.player.radius;
+    const left = Math.min(...g.map(r => r.x)), right = Math.max(...g.map(r => r.x + r.width));
+    const top = Math.min(...g.map(r => r.y)), bottom = Math.max(...g.map(r => r.y + r.height));
+    w.player.x = vector.x ? (vector.x > 0 ? left - radius - 20 : right + radius + 20) : (left + right) / 2;
+    w.player.y = vector.y ? (vector.y > 0 ? top - radius - 20 : bottom + radius + 20) : (top + bottom) / 2;
+    w.boostUntil = 60000;
     for (let frame = 1; frame <= 120; frame++) {
       w.update(0.016, frame * 16, new Set(), vector); assert(canStand(w.stage, w.player.x, w.player.y), "柵に埋まりました");
     }
-    assert(limit(w.player), "柵を越えました");
+    assert(vector.x > 0 ? w.player.x <= left - radius : vector.x < 0 ? w.player.x >= right + radius : vector.y > 0 ? w.player.y <= top - radius : w.player.y >= bottom + radius, "柵を越えました");
   });
   test("縦長の上下左右の移動範囲に収まり、下端まで移動できる", () => {
     const w = make(0); w.start(0);
@@ -67,13 +77,48 @@
   test("縦横の切り替えで、スコア・残り時間・効果期限を保持", () => {
     const w = new World(3, rng()); w.start(1000); w.score = 9; w.boostUntil = 9000; w.slowUntil = 7000; w.update(0, 5000);
     const deadline = w.deadline; w.setLayout("portrait");
-    assert(w.width === 540 && w.score === 9 && w.remaining === 56 && w.deadline === deadline && w.multiplier(5000) === .75, "切り替えでリセットされました");
+    assert(w.width === 594 && w.score === 9 && w.remaining === 56 && w.deadline === deadline && w.multiplier(5000) === .75, "切り替えでリセットされました");
     assert(canStand(w.stage, w.player.x, w.player.y), "切り替え後に柵と重複");
     w.setLayout("landscape"); assert(w.width === 960 && w.height === 540 && w.score === 9 && w.deadline === deadline, "PCへ戻せません");
   });
   test("縦長からステージ変更・リスタートしても縦長のまま", () => {
     const w = make(0); w.start(0); w.setStage(3); w.start(1000);
-    assert(w.width === 540 && w.height === 800 && w.stage.id === STAGES[3].id && w.remaining === 60 && w.score === 0, "縦長の設定が失われました");
+    assert(w.width === 594 && w.height === 800 && w.stage.id === STAGES[3].id && w.remaining === 60 && w.score === 0, "縦長の設定が失われました");
+  });
+  test("スマホだけキャラクター・コインが20％拡大し、取得判定も連動", () => {
+    const w = make(0), pc = new World();
+    assert(near(w.player.radius, RADIUS * 1.2) && w.sizes.playerScale === 1.2 && w.sizes.coinScale === 1.2, "拡大率が不正");
+    assert(pc.player.radius === RADIUS && pc.sizes.playerScale === 1 && pc.sizes.coinScale === 1, "PCの寸法が変化");
+    w.start(0); const limit = w.player.radius + w.sizes.coinRadius;
+    w.coins = [{ x: w.player.x + limit + .1, y: w.player.y, type: "normal" }];
+    w.update(0, 100); assert(w.score === 0, "取得範囲の外で加点");
+    w.coins[0].x -= .2; w.update(0, 101); assert(w.score === 1, "拡大した取得範囲で取れません");
+  });
+  test("柵全体・池の半径を15％縮小し、四隅の接続を維持", () => {
+    const w = make(3), group = w.stage.fences.slice(0, 4);
+    const left = Math.min(...group.map(r => r.x)), right = Math.max(...group.map(r => r.x + r.width));
+    const top = Math.min(...group.map(r => r.y)), bottom = Math.max(...group.map(r => r.y + r.height));
+    assert(near(right - left, 145 * .85) && near(bottom - top, 170 * 800 / 960 * .85), "囲いの寸法が不正");
+    const xs = [left + .1, right - .1], ys = [top + .1, bottom - .1];
+    for (const x of xs) for (const y of ys) assert(!canStand(w.stage, x, y, .01), "四隅に隙間");
+    assert(near(w.stage.ponds[0].rx, 60 * .85) && near(w.stage.ponds[0].ry, 115 * 800 / 960 * .85), "池の寸法が不正");
+  });
+  test("縮小した池の水面境界で減速し、旧サイズの岸辺では減速しない", () => {
+    const w = make(2); w.start(0); const p = w.stage.ponds[0];
+    w.player.x = p.x + p.rx + 2; w.player.y = p.y;
+    w.update(.001, 100, new Set(), { x: -1, y: 0 }); assert(!w.inPond && w.slowUntil === 0, "岸辺で減速");
+    w.player.x = p.x + p.rx + .1;
+    w.update(.001, 101, new Set(), { x: -1, y: 0 }); assert(w.inPond && w.slowUntil === 2101, "水面境界で減速しません");
+  });
+  test("拡大した画像と弾みが移動範囲の四端でも欠けない", () => {
+    const w = make(0), b = w.bounds, half = 76 * w.sizes.playerScale / 2;
+    assert(b.left - half >= 0 && b.right + half <= w.width, "左右で画像が欠けます");
+    assert(b.top + 25 * 1.2 - 76 * 1.2 - 5 * 1.2 >= 0 && b.bottom + 25 * 1.2 <= w.height, "上下で画像が欠けます");
+  });
+  test("往復の縦横切り替えで新しい横幅から元の座標へ戻る", () => {
+    const w = new World(0, rng()); w.player.x = 600; w.player.y = 200;
+    w.setLayout("portrait"); w.setLayout("landscape");
+    assert(near(w.player.x, 600) && near(w.player.y, 200), "逆変換が不正");
   });
   test("ジョイスティック：触れただけ・10px以内では移動しない", () => {
     const j = new FloatingJoystick(); j.begin(1, 120, 200); j.move(1, 126, 208);

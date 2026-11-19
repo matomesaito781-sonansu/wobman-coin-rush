@@ -244,7 +244,10 @@
         bg.strokeStyle = "#80bf8b"; bg.lineWidth = 2; bg.beginPath(); bg.moveTo(x - 3, y); bg.lineTo(x, y + 4); bg.lineTo(x + 3, y - 2); bg.stroke();
       }
     }
-    for (const pond of world.stage.ponds) {
+    for (const shape of world.stage.ponds) {
+      const scale = world.sizes.obstacleScale;
+      bg.save(); bg.translate(shape.x, shape.y); bg.scale(scale, scale);
+      const pond = { x: 0, y: 0, rx: shape.rx / scale, ry: shape.ry / scale };
       ellipse(pond.x, pond.y + 3, pond.rx + 9, pond.ry + 8, "#7bb992", bg);
       ellipse(pond.x, pond.y, pond.rx + 5, pond.ry + 5, "#ddedc0", bg);
       ellipse(pond.x, pond.y, pond.rx, pond.ry, "#5db9d9", bg);
@@ -254,6 +257,7 @@
         bg.quadraticCurveTo(pond.x + i * 17, pond.y + 5 + i * 20, pond.x + 25 + i * 17, pond.y + i * 20); bg.stroke();
       }
       ellipse(pond.x - pond.rx * 0.5, pond.y - 12, 11, 6, "#589e6a", bg); ellipse(pond.x + pond.rx * 0.5, pond.y + 17, 9, 5, "#68aa71", bg);
+      bg.restore();
     }
     const fences = world.stage.fences;
     for (let i = 0; i + 3 < fences.length; i += 4) {
@@ -265,7 +269,9 @@
     }
   }
   function drawFence(rect) {
-    const { x, y, width, height } = rect;
+    const scale = world.sizes.obstacleScale;
+    ctx.save(); ctx.translate(rect.x, rect.y); ctx.scale(scale, scale);
+    const x = 0, y = 0, width = rect.width / scale, height = rect.height / scale;
     roundedRect(x - 3, y + 5, width + 6, height + 6, 4, "#46774b33");
     if (width >= height) {
       roundedRect(x, y - 11, width, 8, 3, "#cf9560"); roundedRect(x, y + 1, width, 7, 3, "#b77b4b");
@@ -278,8 +284,11 @@
       const count = Math.ceil(height / 35);
       for (let i = 0; i <= count; i++) roundedRect(x, y + Math.min(height - 10, i * height / count) - 19, 13, 31, 3, "#d3a06c");
     }
+    ctx.restore();
   }
-  function drawCoin(coin, seconds) {
+  function drawCoin(position, seconds) {
+    ctx.save(); ctx.translate(position.x, position.y); ctx.scale(world.sizes.coinScale, world.sizes.coinScale);
+    const coin = { ...position, x: 0, y: 0 };
     const config = TYPES[coin.type], bob = reducedMotion.matches ? 0 : Math.sin(seconds * 3 + coin.phase) * 3;
     ellipse(coin.x, coin.y + 15, 15, 5, "#4e9e7040"); ellipse(coin.x, coin.y + bob + 3, 16, 17, config.edge); ellipse(coin.x, coin.y + bob, 16, 17, "#fff7d0");
     let color = config.color;
@@ -289,21 +298,24 @@
     }
     ellipse(coin.x, coin.y + bob, 12, 13, color); ctx.fillStyle = config.edge; ctx.font = "900 19px sans-serif"; ctx.textAlign = "center";
     ctx.fillText(config.symbol, coin.x, coin.y + bob + 6); ellipse(coin.x - 6, coin.y + bob - 8, 3, 2, "#fffdf0");
+    ctx.restore();
   }
   function drawPlayer() {
     if (!characterReady) return;
-    const player = world.player;
+    ctx.save(); ctx.translate(world.player.x, world.player.y); ctx.scale(world.sizes.playerScale, world.sizes.playerScale);
+    const player = { ...world.player, x: 0, y: 0 };
     const bounce = player.moving && !reducedMotion.matches ? Math.abs(Math.sin(player.stride * 11)) * 5 : 0;
     ellipse(player.x, player.y + 23, 24 - bounce * 0.4, 7 - bounce * 0.3, "#30784e40");
     // 元画像をそのまま等倍率で縮小。左右反転・切り抜き・変形は行いません。
     const scale = Math.min(76 / character.naturalWidth, 76 / character.naturalHeight);
     const width = character.naturalWidth * scale, height = character.naturalHeight * scale;
     ctx.drawImage(character, player.x - width / 2, player.y + 25 - height - bounce, width, height);
+    ctx.restore();
   }
   function render(now) {
     ctx.clearRect(0, 0, WIDTH, HEIGHT); ctx.drawImage(background, 0, 0);
-    const objects = world.coins.map(coin => ({ y: coin.y + 15, draw: () => drawCoin(coin, now / 1000) }));
-    objects.push({ y: world.player.y + 23, draw: drawPlayer });
+    const objects = world.coins.map(coin => ({ y: coin.y + 15 * world.sizes.coinScale, draw: () => drawCoin(coin, now / 1000) }));
+    objects.push({ y: world.player.y + 23 * world.sizes.playerScale, draw: drawPlayer });
     world.stage.fences.forEach(rect => objects.push({ y: rect.y + rect.height, draw: () => drawFence(rect) }));
     objects.sort((a, b) => a.y - b.y).forEach(object => object.draw());
     for (const particle of particles) { ctx.globalAlpha = Math.min(1, particle.life * 3); ellipse(particle.x, particle.y, 3, 3, particle.color); }

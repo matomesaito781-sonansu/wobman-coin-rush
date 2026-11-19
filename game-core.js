@@ -5,9 +5,14 @@
   const WIDTH = 960, HEIGHT = 540, DURATION = 60;
   const RADIUS = 21, BASE_SPEED = 275, STEP = 20;
   const BOUNDS = Object.freeze({ left: 42, top: 52, right: 918, bottom: 498 });
+  // 描画と物理判定が共用する寸法。横長（PC）は従来値を維持します。
+  const SIZES = Object.freeze({
+    landscape: Object.freeze({ playerScale: 1, coinScale: 1, obstacleScale: 1, playerRadius: RADIUS, coinRadius: 15 }),
+    portrait: Object.freeze({ playerScale: 1.2, coinScale: 1.2, obstacleScale: 0.85, playerRadius: RADIUS * 1.2, coinRadius: 15 * 1.2 })
+  });
   const LAYOUTS = Object.freeze({
     landscape: Object.freeze({ width: WIDTH, height: HEIGHT, bounds: BOUNDS }),
-    portrait: Object.freeze({ width: 540, height: 800, bounds: Object.freeze({ left: 42, top: 52, right: 498, bottom: 758 }) })
+    portrait: Object.freeze({ width: 594, height: 800, bounds: Object.freeze({ left: 48, top: 68, right: 546, bottom: 758 }) })
   });
   const TYPES = Object.freeze({
     normal: { points: 1, weight: 70, color: "#ffd04b", edge: "#b77b16", symbol: "1" },
@@ -34,18 +39,33 @@
   Object.freeze(STAGES);
 
   function projectPoint(layout, x, y) {
-    return layout === "portrait" ? { x: HEIGHT - y, y: x * LAYOUTS.portrait.height / WIDTH } : { x, y };
+    return layout === "portrait" ? { x: (HEIGHT - y) * LAYOUTS.portrait.width / HEIGHT, y: x * LAYOUTS.portrait.height / WIDTH } : { x, y };
   }
   function createStage(index, layout) {
     const source = STAGES[index] || STAGES[0], dimensions = LAYOUTS[layout];
+    const sizes = SIZES[layout], horizontal = dimensions.width / HEIGHT;
     const fences = layout === "portrait" ? source.fences.map(rect => ({
-      x: HEIGHT - rect.y - rect.height, y: rect.x * dimensions.height / WIDTH,
-      width: rect.height, height: rect.width * dimensions.height / WIDTH
+      x: (HEIGHT - rect.y - rect.height) * horizontal, y: rect.x * dimensions.height / WIDTH,
+      width: rect.height * horizontal, height: rect.width * dimensions.height / WIDTH
     })) : source.fences;
+    if (layout === "portrait") {
+      // 4辺を同じ中心で縮小し、閉じた囲いの角に隙間を作らないようにします。
+      for (let i = 0; i < fences.length; i += 4) {
+        const group = fences.slice(i, i + 4);
+        const cx = (Math.min(...group.map(r => r.x)) + Math.max(...group.map(r => r.x + r.width))) / 2;
+        const cy = (Math.min(...group.map(r => r.y)) + Math.max(...group.map(r => r.y + r.height))) / 2;
+        for (const rect of group) {
+          // 横方向の拡幅は配置中心だけに反映し、障害物自体は縦横とも85％。
+          rect.x = cx + (rect.x - cx) * sizes.obstacleScale / horizontal;
+          rect.y = cy + (rect.y - cy) * sizes.obstacleScale;
+          rect.width *= sizes.obstacleScale / horizontal; rect.height *= sizes.obstacleScale;
+        }
+      }
+    }
     const ponds = layout === "portrait" ? source.ponds.map(pond => ({
-      ...projectPoint(layout, pond.x, pond.y), rx: pond.ry, ry: pond.rx * dimensions.height / WIDTH
+      ...projectPoint(layout, pond.x, pond.y), rx: pond.ry * sizes.obstacleScale, ry: pond.rx * dimensions.height / WIDTH * sizes.obstacleScale
     })) : source.ponds;
-    return { ...source, ...dimensions, layout, fences, ponds };
+    return { ...source, ...dimensions, sizes, layout, fences, ponds };
   }
 
   function circleHitsRect(x, y, radius, rect) {
@@ -56,12 +76,12 @@
   function insidePond(x, y, pond, margin = 0) {
     return ((x - pond.x) / (pond.rx + margin)) ** 2 + ((y - pond.y) / (pond.ry + margin)) ** 2 < 1;
   }
-  function canStand(stage, x, y, radius = RADIUS) {
+  function canStand(stage, x, y, radius = stage.sizes?.playerRadius ?? RADIUS) {
     const bounds = stage.bounds || BOUNDS;
     return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom &&
       !stage.fences.some(rect => circleHitsRect(x, y, radius, rect));
   }
-  function clearSegment(stage, x1, y1, x2, y2, radius = RADIUS) {
+  function clearSegment(stage, x1, y1, x2, y2, radius = stage.sizes?.playerRadius ?? RADIUS) {
     const steps = Math.max(1, Math.ceil(Math.hypot(x2 - x1, y2 - y1) / 4));
     for (let i = 0; i <= steps; i++) {
       if (!canStand(stage, x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps, radius)) return false;
@@ -72,7 +92,7 @@
   // 角では円と矩形の接触法線に沿って押し戻し、接線方向の移動を残します。
   // X/Yを個別に止める方式で発生する、角への引っかかりを防ぎます。
   function resolveMove(stage, x, y, previousX, previousY) {
-    const radius = RADIUS + 0.01;
+    const radius = (stage.sizes?.playerRadius ?? RADIUS) + 0.01;
     const bounds = stage.bounds || BOUNDS;
     for (let pass = 0; pass < 6; pass++) {
       x = Math.max(bounds.left, Math.min(bounds.right, x));
@@ -146,15 +166,18 @@
       this.stageIndex = STAGES[index] ? index : 0;
       this.stage = createStage(this.stageIndex, this.layout);
       this.width = this.stage.width; this.height = this.stage.height; this.bounds = this.stage.bounds;
+      this.sizes = this.stage.sizes;
+      this.spawnClearance = this.sizes.playerRadius + 7 * this.sizes.coinScale;
+      this.pondClearance = 28 * this.sizes.coinScale;
       this.reachable = findReachable(this.stage);
-      this.spawnPoints = this.reachable.filter(point => canStand(this.stage, point.x, point.y, RADIUS + 7) && !this.stage.ponds.some(pond => insidePond(point.x, point.y, pond, 28)));
+      this.spawnPoints = this.reachable.filter(point => canStand(this.stage, point.x, point.y, this.spawnClearance) && !this.stage.ponds.some(pond => insidePond(point.x, point.y, pond, this.pondClearance)));
       this.reset();
     }
     setLayout(layout) {
       if (!LAYOUTS[layout] || layout === this.layout) return false;
       const oldLayout = this.layout, oldPlayer = { ...this.player };
       const saved = Object.fromEntries(["status", "score", "deadline", "remaining", "boostUntil", "slowUntil"].map(key => [key, this[key]]));
-      const base = oldLayout === "portrait" ? { x: oldPlayer.y * WIDTH / LAYOUTS.portrait.height, y: HEIGHT - oldPlayer.x } : oldPlayer;
+      const base = oldLayout === "portrait" ? { x: oldPlayer.y * WIDTH / LAYOUTS.portrait.height, y: HEIGHT - oldPlayer.x * HEIGHT / LAYOUTS.portrait.width } : oldPlayer;
       this.layout = layout; this.setStage(this.stageIndex);
       Object.assign(this, saved);
       const mapped = projectPoint(layout, base.x, base.y);
@@ -167,7 +190,7 @@
     }
     reset() {
       this.status = "ready"; this.score = 0; this.deadline = 0; this.remaining = DURATION;
-      this.player = { x: this.width / 2, y: this.height / 2, radius: RADIUS, moving: false, stride: 0 };
+      this.player = { x: this.width / 2, y: this.height / 2, radius: this.sizes.playerRadius, moving: false, stride: 0 };
       this.boostUntil = 0; this.slowUntil = 0; this.inPond = false;
       this.coins = []; this.events = []; this.spawnElapsed = 0;
       for (let i = 0; i < 8; i++) this.spawnCoin();
@@ -185,10 +208,10 @@
         const base = this.spawnPoints[Math.floor(this.random() * this.spawnPoints.length)];
         const x = base.x + (this.random() - 0.5) * 12;
         const y = base.y + (this.random() - 0.5) * 12;
-        if (!canStand(this.stage, x, y, RADIUS + 7) || !clearSegment(this.stage, base.x, base.y, x, y, RADIUS + 7)) continue;
-        if (this.stage.ponds.some(pond => insidePond(x, y, pond, 28))) continue;
-        if (Math.hypot(x - this.player.x, y - this.player.y) < 78) continue;
-        if (this.coins.some(coin => Math.hypot(x - coin.x, y - coin.y) < 58)) continue;
+        if (!canStand(this.stage, x, y, this.spawnClearance) || !clearSegment(this.stage, base.x, base.y, x, y, this.spawnClearance)) continue;
+        if (this.stage.ponds.some(pond => insidePond(x, y, pond, this.pondClearance))) continue;
+        if (Math.hypot(x - this.player.x, y - this.player.y) < 78 * this.sizes.playerScale) continue;
+        if (this.coins.some(coin => Math.hypot(x - coin.x, y - coin.y) < 58 * this.sizes.coinScale)) continue;
         this.coins.push({ x, y, type: this.chooseType(), phase: this.random() * Math.PI * 2 });
         return;
       }
@@ -228,7 +251,7 @@
       this.player.moving = Math.hypot(this.player.x - beforeX, this.player.y - beforeY) > 0.01;
       if (this.player.moving) this.player.stride += dt;
       this.coins = this.coins.filter(coin => {
-        if (Math.hypot(this.player.x - coin.x, this.player.y - coin.y) < RADIUS + 15) { this.takeCoin(coin, now); return false; }
+        if (Math.hypot(this.player.x - coin.x, this.player.y - coin.y) < this.player.radius + this.sizes.coinRadius) { this.takeCoin(coin, now); return false; }
         return true;
       });
       this.spawnElapsed += dt;

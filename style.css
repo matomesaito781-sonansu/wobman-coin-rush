@@ -288,9 +288,10 @@ body.is-playing { overscroll-behavior-y: none; }
   .effect-bar { min-height: 32px; padding-top: 8px; }
   .portrait-layout.is-playing .heading { display: none; }
   .portrait-layout.is-playing .game-shell { padding-top: 10px; }
-  .portrait-layout .game .playfield { width: min(calc(100% - 16px), calc((100vh - 240px) * .675)); width: min(calc(100% - 16px), calc((100svh - 240px) * .675)); margin-inline: auto; }
-  .portrait-layout .game .dashboard { padding: 12px 14px; gap: 12px; }
-  .portrait-layout .game .stat > strong { font-size: 28px; }
+  .portrait-layout .game-shell { width: calc(100% - 4px); }
+  .portrait-layout .game .playfield { width: min(calc(100% - 4px), calc((100vh - 220px) * .7425)); width: min(calc(100% - 4px), calc((100svh - 220px) * .7425)); margin-inline: auto; }
+  .portrait-layout .game .dashboard { padding: 8px 12px; gap: 8px; }
+  .portrait-layout .game .stat > strong { font-size: 26px; margin-top: 4px; }
   .portrait-layout .game .stat-label { font-size: 11px; }
   .portrait-layout .game .best-star { display: none; }
   .portrait-layout .game .field-label { top: 12px; left: 12px; font-size: 9px; }
