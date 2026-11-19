@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101b36">
+  <meta name="description" content="wobまんちゃんのコインラッシュ！ 4つのステージで60秒のコイン集め。矢印キーやタッチボタンで遊ぼう。">
+  <title>wobまんちゃんのコインラッシュ！</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Ccircle cx='24' cy='24' r='21' fill='%23ffd24b'/%3E%3Ctext x='24' y='33' text-anchor='middle' font-size='30' fill='%239c5c13'%3E★%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <script src="game-core.js" defer></script>
+  <script src="audio.js" defer></script>
+  <script src="ranking.js" defer></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <main class="game-shell">
+    <header class="header">
+      <div class="brand"><span class="brand-icon" aria-hidden="true">✦</span><span>WOBMAN <span class="brand-light">ARCADE</span></span></div>
+      <span class="edition"><span class="version-badge">VER.2</span> ちょっと遊ぼう、60秒。</span>
+    </header>
+
+    <section class="heading" aria-labelledby="game-title">
+      <div class="title-block"><p class="eyebrow">WOBMAN'S LITTLE ADVENTURE</p><h1 id="game-title" aria-label="wobまんちゃんのコインラッシュ！"><span class="title-character">wobまんちゃんの</span><span class="title-rush">コインラッシュ！<span class="title-spark" aria-hidden="true">✦</span></span></h1><p class="intro">wobまんちゃんと走って、集めて。4つのステージへ！</p></div>
+      <div class="challenge"><img src="assets/wobman.png" alt="wobまんちゃん" width="56" height="56"><div><strong>60秒のコインラッシュ</strong><span>レアコインを見つけよう！</span></div></div>
+    </section>
+
+    <details class="player-panel" id="player-panel" open>
+      <summary>プレイヤー：<span id="player-name">未登録</span><span class="profile-edit-hint">名前の登録・変更・切り替え</span></summary>
+      <form id="profile-form" novalidate>
+        <label for="username">ユーザー名 <span>2〜12文字</span></label>
+        <div class="profile-input-row"><input id="username" name="username" type="text" autocomplete="nickname" aria-describedby="profile-message" placeholder="名前を入力してください" required><button type="submit" id="save-profile">名前を保存</button></div>
+      </form>
+      <div class="profile-switch-row"><label for="player-select">プレイヤー切替</label><select id="player-select"><option value="">新しいプレイヤー</option></select><button id="new-player" type="button">新規</button></div>
+      <p id="profile-message" role="status"></p>
+    </details>
+    <p id="storage-notice" class="notice" role="status"></p>
+
+    <div class="game-settings">
+      <div class="stage-picker"><label for="stage-select">ステージ</label><select id="stage-select">
+        <option value="0">1. 草原</option><option value="1">2. 公園 ─ 柵あり</option><option value="2">3. 散歩道 ─ 池あり</option><option value="3">4. 広場 ─ 柵と池</option>
+      </select></div>
+      <div class="audio-controls" aria-label="サウンド設定"><button type="button" id="bgm-button" aria-pressed="true">BGM ON</button><button type="button" id="sfx-button" aria-pressed="true">効果音 ON</button></div>
+    </div>
+    <p class="stage-description"><span id="stage-description"></span><span class="stage-reset-hint">ステージ変更でゲームをリセット</span></p>
+    <p id="asset-status" class="notice" role="status">キャラクター画像を読み込んでいます…</p>
+    <p id="audio-notice" class="notice" role="status"></p>
+
+    <section class="game" id="game" aria-label="wobまんちゃんのコインラッシュ！">
+      <div class="dashboard">
+        <div class="stat"><span class="stat-label"><span class="coin-dot" aria-hidden="true"></span>スコア</span><strong id="score">0<span>pt</span></strong></div>
+        <div class="stat timer-stat" id="timer-stat"><span class="stat-label">のこり時間</span><strong><span id="time">60</span><span>秒</span></strong><div class="time-track" aria-hidden="true"><div id="time-bar"></div></div></div>
+        <div class="stat best-stat"><span class="stat-label"><span class="best-star" aria-hidden="true">★</span><span id="best-stage">草原のベスト</span></span><strong id="best">0<span>pt</span></strong></div>
+      </div>
+
+      <div class="playfield" id="playfield">
+        <canvas id="game-canvas" width="960" height="540" tabindex="0" aria-label="矢印キーでwobまんちゃんを動かし、コインを集めてください。柵は通れません。池に入ると2秒間減速します。制限時間は60秒です。"></canvas>
+        <div class="field-label" aria-hidden="true"><span></span><span id="field-name">MEADOW</span></div>
+        <div class="overlay" id="overlay">
+          <div class="overlay-card">
+            <div class="hero-coin" aria-hidden="true">★</div>
+            <p class="eyebrow" id="overlay-kicker">READY, SET, RUSH!</p>
+            <p class="overlay-game-name">wobまんちゃんのコインラッシュ！</p>
+            <h2 id="overlay-title">wobまんちゃんと遊ぼう！</h2>
+            <p id="overlay-description">矢印キーで移動して、コインをゲット。<br>60秒で何枚あつめられるかな？</p>
+            <p class="final-score" id="final-score" hidden><strong id="final-score-value">0</strong><span>ポイント</span></p>
+            <p class="result-message" id="result-message" hidden></p>
+            <button class="primary-button" id="start-button" type="button" disabled>ゲームスタート <span aria-hidden="true">✦</span></button>
+            <p id="save-status" role="status" hidden></p>
+            <button id="view-ranking" class="view-ranking" type="button" hidden>ランキングを見る</button>
+            <span class="overlay-hint" id="overlay-hint">準備ができたら、スタート！</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="effect-bar" aria-label="現在の速度効果"><span id="speed-status">移動速度 ×1</span><span id="boost-status" class="effect boost" hidden></span><span id="slow-status" class="effect slow" hidden></span></div>
+      <div class="touch-controls" aria-label="タッチ移動ボタン">
+        <button type="button" data-direction="ArrowUp" aria-label="上に移動">↑</button>
+        <button type="button" data-direction="ArrowLeft" aria-label="左に移動">←</button>
+        <button type="button" data-direction="ArrowDown" aria-label="下に移動">↓</button>
+        <button type="button" data-direction="ArrowRight" aria-label="右に移動">→</button>
+      </div>
+      <div class="game-footer">
+        <div class="controls-guide"><span class="key-group" aria-hidden="true"><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span><span>矢印キーで移動</span></div>
+        <button class="restart-button" id="restart-button" type="button"><span aria-hidden="true">↻</span> リスタート</button>
+      </div>
+    </section>
+
+    <div class="coin-legend" aria-label="コインの種類">
+      <span><i class="legend-coin normal">1</i> 通常 <strong>1pt</strong></span><span><i class="legend-coin blue">2</i> 青 <strong>2pt</strong></span><span><i class="legend-coin rainbow">3</i> 虹 <strong>3pt</strong></span><span><i class="legend-coin speed">ϟ</i> 加速 <strong>5秒 ×1.5</strong></span>
+    </div>
+    <div class="below-game"><p><span aria-hidden="true">✦</span> 柵はよけよう。池に入ると2秒間、速度が半分に！</p><span>音はゲーム開始後に再生されます。</span></div>
+    <div id="stage-records" class="stage-records" aria-label="ステージ別最高記録"></div>
+    <section id="ranking" class="ranking-panel" aria-labelledby="ranking-title" tabindex="-1">
+      <p class="ranking-game-name">wobまんちゃんのコインラッシュ！</p>
+      <div class="ranking-heading"><h2 id="ranking-title">この端末のランキング</h2><span class="ranking-badge">TOP 30</span></div>
+      <p class="ranking-local-note">この端末・このブラウザに保存された記録です。オンラインには接続していません。</p>
+      <label for="ranking-stage">表示するステージ</label><select id="ranking-stage"><option value="meadow">1. 草原</option><option value="park">2. 公園</option><option value="pond">3. 散歩道</option><option value="plaza">4. 広場</option></select>
+      <p id="ranking-message" role="status"></p>
+      <table class="ranking-table"><caption class="sr-only">ステージ別の上位30人。自己ベストのみ、同点は先に記録した人を上位に表示します。</caption><thead><tr><th scope="col">順位</th><th scope="col">ユーザー名</th><th scope="col">スコア</th></tr></thead><tbody id="ranking-body"></tbody></table>
+    </section>
+    <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
+    <footer class="page-footer">MADE FOR A LITTLE BREAK <span aria-hidden="true">✦</span> HAVE FUN!</footer>
+  </main>
+</body>
+</html>
