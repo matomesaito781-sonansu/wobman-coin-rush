@@ -1,18 +1,21 @@
 ﻿"use strict";
 
 (() => {
-  const { World, STAGES, TYPES, WIDTH, HEIGHT, DURATION } = window.CoinHopCore;
+  const { World, STAGES, TYPES, DURATION, projectPoint } = window.CoinHopCore;
   const $ = id => document.getElementById(id);
   const canvas = $("game-canvas"), ctx = canvas.getContext("2d");
   const overlay = $("overlay"), startButton = $("start-button"), restartButton = $("restart-button");
   const stageSelect = $("stage-select"), announcement = $("announcement");
   const audio = new window.CoinHopAudio();
-  const world = new World();
+  const portraitQuery = matchMedia("(max-width: 650px) and (orientation: portrait)");
+  const world = new World(0, Math.random, portraitQuery.matches ? "portrait" : "landscape");
+  let WIDTH = world.width, HEIGHT = world.height;
+  const joystick = new window.CoinRushInput.FloatingJoystick();
   // 将来の接続時は、この1行を同じ非同期APIのFirestoreアダプターに差し替えます。
   const rankingRepository = new window.CoinRushRanking.LocalRankingRepository();
   let profile = null, creatingPlayer = false, profileReady = false, sessionPlayer = null;
   let runVersion = 0, rankingVersion = 0;
-  const pressedKeys = new Set(), touchDirections = new Map();
+  const pressedKeys = new Set();
   const directions = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const character = new Image();
@@ -50,8 +53,24 @@
     }));
   }
   function clearInput() {
-    pressedKeys.clear(); touchDirections.clear(); world.player.moving = false;
-    document.querySelectorAll("[data-direction]").forEach(button => button.classList.remove("pressed"));
+    pressedKeys.clear(); world.player.moving = false;
+    const pointerId = joystick.pointerId; joystick.reset();
+    if (pointerId !== null && canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
+    document.body.classList.remove("is-dragging");
+  }
+  function inputDescription() {
+    return world.layout === "portrait" || matchMedia("(pointer: coarse)").matches ? "フィールドに触れたまま、行きたい方向へドラッグ。指を離すと止まるよ！" : "矢印キーで移動しよう！";
+  }
+  function syncViewport() {
+    const layoutChanged = world.setLayout(portraitQuery.matches ? "portrait" : "landscape");
+    if (layoutChanged) { clearInput(); particles = []; popups = []; }
+    WIDTH = world.width; HEIGHT = world.height;
+    const resized = canvas.width !== WIDTH || canvas.height !== HEIGHT;
+    if (resized) { canvas.width = WIDTH; canvas.height = HEIGHT; background.width = WIDTH; background.height = HEIGHT; }
+    document.body.classList.toggle("portrait-layout", world.layout === "portrait");
+    $("playfield").style.setProperty("--field-aspect", `${WIDTH} / ${HEIGHT}`);
+    if (resized || layoutChanged) buildBackground();
+    if (world.status === "ready") $("overlay-description").textContent = `${world.stage.name}で60秒のコインラッシュ。${inputDescription()}`;
   }
   function updateStorageNotice() {
     $("storage-notice").textContent = rankingRepository.persistent ? "" : "ブラウザに保存できないため、このページを開いている間だけ名前とランキングを保持します。";
@@ -119,6 +138,7 @@
   }
   function prepareStage() {
     runVersion++; setPlaying(false);
+    syncViewport();
     audio.stop(); clearInput(); particles = []; popups = [];
     world.setStage(Number(stageSelect.value));
     displayedScore = -1; displayedSeconds = -1;
@@ -127,7 +147,7 @@
     $("field-name").textContent = world.stage.label;
     $("overlay-kicker").textContent = `STAGE ${Number(stageSelect.value) + 1} / READY, SET, RUSH!`;
     $("overlay-title").textContent = "wobまんちゃんと遊ぼう！";
-    $("overlay-description").textContent = `${world.stage.name}で60秒のコインラッシュ。矢印キーで移動しよう！`;
+    $("overlay-description").textContent = `${world.stage.name}で60秒のコインラッシュ。${inputDescription()}`;
     $("final-score").hidden = true; $("result-message").hidden = true;
     $("overlay-hint").textContent = "金1pt・青2pt・虹3pt・緑はスピードアップ";
     startButton.textContent = "ゲームスタート ✦";
@@ -137,6 +157,7 @@
   }
   function startGame() {
     if (!characterReady || !profileReady || !profile || creatingPlayer) { $("player-panel").open = true; $("username").focus(); return; }
+    syncViewport();
     runVersion++; sessionPlayer = { ...profile }; setPlaying(true);
     clearInput(); particles = []; popups = [];
     const now = performance.now(); world.start(now); lastTime = now;
@@ -207,12 +228,14 @@
       bg.fillStyle = (x / 60 + y / 60) % 2 ? "#b0e5b0" : "#ace2ad"; bg.fillRect(x + 1, y + 1, 58, 58);
     }
     if (world.stage.ponds.length) {
+      const p = (x, y) => projectPoint(world.layout, x, y);
+      const a = p(60, 470), b = p(170, 320), c = p(410, 335), d = p(480, 265), e = p(550, 200), f = p(730, 235), g = p(900, 65);
       bg.strokeStyle = "#dfe4af"; bg.lineWidth = 52; bg.lineCap = "round";
-      bg.beginPath(); bg.moveTo(60, 470); bg.bezierCurveTo(170, 320, 410, 335, 480, 265); bg.bezierCurveTo(550, 200, 730, 235, 900, 65); bg.stroke();
+      bg.beginPath(); bg.moveTo(a.x, a.y); bg.bezierCurveTo(b.x, b.y, c.x, c.y, d.x, d.y); bg.bezierCurveTo(e.x, e.y, f.x, f.y, g.x, g.y); bg.stroke();
     }
     bg.strokeStyle = "#75bd8399"; bg.lineWidth = 3; bg.setLineDash([7, 9]); bg.strokeRect(19, 19, WIDTH - 38, HEIGHT - 38); bg.setLineDash([]);
     for (let i = 0; i < 85; i++) {
-      const x = 30 + ((i * 137 + 19) % 900), y = 40 + ((i * 83 + 31) % 465);
+      const x = 30 + ((i * 137 + 19) % (WIDTH - 60)), y = 40 + ((i * 83 + 31) % (HEIGHT - 75));
       if (i % 4 === 0) {
         const color = i % 3 ? "#fff3bf" : "#f9b9c7";
         for (let petal = 0; petal < 5; petal++) { const angle = petal * Math.PI * 2 / 5; ellipse(x + Math.cos(angle) * 3.5, y + Math.sin(angle) * 3.5, 2.5, 2.5, color, bg); }
@@ -234,9 +257,11 @@
     }
     const fences = world.stage.fences;
     for (let i = 0; i + 3 < fences.length; i += 4) {
-      const top = fences[i], bottom = fences[i + 1];
-      roundedRect(top.x + 12, top.y + 12, top.width - 24, bottom.y - top.y - 10, 4, "#81b67e", bg);
-      bg.font = "bold 13px sans-serif"; bg.textAlign = "center"; bg.fillStyle = "#46764f"; bg.fillText("FLOWER GARDEN", top.x + top.width / 2, (top.y + bottom.y) / 2 + 8);
+      const group = fences.slice(i, i + 4);
+      const left = Math.min(...group.map(r => r.x)), top = Math.min(...group.map(r => r.y));
+      const right = Math.max(...group.map(r => r.x + r.width)), bottom = Math.max(...group.map(r => r.y + r.height));
+      roundedRect(left + 12, top + 12, right - left - 24, bottom - top - 24, 4, "#81b67e", bg);
+      bg.font = "bold 12px sans-serif"; bg.textAlign = "center"; bg.fillStyle = "#46764f"; bg.fillText("FLOWER GARDEN", (left + right) / 2, (top + bottom) / 2 + 5);
     }
   }
   function drawFence(rect) {
@@ -287,10 +312,22 @@
       ctx.strokeStyle = "#fff9de"; ctx.strokeText(popup.text, popup.x, popup.y); ctx.fillStyle = popup.color; ctx.fillText(popup.text, popup.x, popup.y);
     }
     ctx.globalAlpha = 1;
+    drawJoystick();
+  }
+  function drawJoystick() {
+    if (joystick.pointerId === null || world.status !== "playing") return;
+    const rect = canvas.getBoundingClientRect(), scale = WIDTH / rect.width;
+    const x = (joystick.origin.x - rect.left) * scale, y = (joystick.origin.y - rect.top) * HEIGHT / rect.height;
+    const knobX = (joystick.knob.x - rect.left) * scale, knobY = (joystick.knob.y - rect.top) * HEIGHT / rect.height;
+    ellipse(x, y, 44 * scale, 44 * scale, "#173b5966");
+    ctx.strokeStyle = "#ffffff99"; ctx.lineWidth = 2 * scale;
+    ctx.beginPath(); ctx.arc(x, y, 44 * scale, 0, Math.PI * 2); ctx.stroke();
+    ellipse(x, y, 3 * scale, 3 * scale, "#ffffffaa");
+    ellipse(knobX, knobY, 16 * scale, 16 * scale, "#ffe286dd");
   }
   function frame(now) {
     const dt = Math.min(Math.max((now - lastTime) / 1000, 0), 0.05); lastTime = now;
-    world.update(dt, now, new Set([...pressedKeys, ...touchDirections.values()])); world.events.forEach(reactToEvent);
+    world.update(dt, now, pressedKeys, joystick.vector); world.events.forEach(reactToEvent);
     if (world.status === "playing") updateHud(now);
     for (const particle of particles) { particle.x += particle.vx * dt; particle.y += particle.vy * dt; particle.vy += 140 * dt; particle.life -= dt; }
     for (const popup of popups) { popup.y -= 32 * dt; popup.life -= dt; }
@@ -317,20 +354,24 @@
     if (world.status === "playing") { world.update(0, performance.now()); world.events.forEach(reactToEvent); updateHud(performance.now()); }
     if (!document.hidden) audio.setVisible(true);
   });
-  document.querySelectorAll("[data-direction]").forEach(button => {
-    button.addEventListener("pointerdown", event => {
-      if (world.status !== "playing") return;
-      event.preventDefault(); button.setPointerCapture(event.pointerId); touchDirections.set(event.pointerId, button.dataset.direction);
-      button.classList.add("pressed");
-      // iOS等で音声が中断された場合は、新しい操作のタイミングで再開します。
-      if (audio.context && audio.context.state !== "running") audio.resumeFromGesture();
-    });
-    for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) button.addEventListener(name, event => {
-      touchDirections.delete(event.pointerId); button.classList.remove("pressed");
-    });
-    button.addEventListener("contextmenu", event => event.preventDefault());
+  canvas.addEventListener("pointerdown", event => {
+    if (world.status !== "playing" || event.button !== 0) return;
+    if (event.pointerType === "mouse" && !matchMedia("(max-width: 650px), (pointer: coarse)").matches) return;
+    if (!joystick.begin(event.pointerId, event.clientX, event.clientY)) return;
+    event.preventDefault(); canvas.focus({ preventScroll: true }); canvas.setPointerCapture(event.pointerId);
+    document.body.classList.add("is-dragging");
+    if (audio.context && audio.context.state !== "running") audio.resumeFromGesture();
   });
-  $("game").addEventListener("touchmove", event => { if (world.status === "playing") event.preventDefault(); }, { passive: false });
+  canvas.addEventListener("pointermove", event => {
+    if (event.pointerId !== joystick.pointerId) return;
+    event.preventDefault(); joystick.move(event.pointerId, event.clientX, event.clientY);
+  });
+  for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) canvas.addEventListener(name, event => {
+    if (event.pointerId === joystick.pointerId) clearInput();
+  });
+  for (const name of ["contextmenu", "selectstart", "dragstart"]) canvas.addEventListener(name, event => event.preventDefault());
+  canvas.addEventListener("touchmove", event => { if (world.status === "playing") event.preventDefault(); }, { passive: false });
+  window.addEventListener("resize", syncViewport); portraitQuery.addEventListener("change", syncViewport);
   $("profile-form").addEventListener("submit", async event => {
     event.preventDefault(); if (world.status === "playing") return;
     try {
@@ -364,5 +405,5 @@
     characterReady = false; startButton.disabled = true; restartButton.disabled = true;
     $("asset-status").textContent = "画像を読み込めません。assetsフォルダーにwobman.pngを置いて再読み込みしてください。";
   };
-  prepareStage(); initializeProfile(); updateAudioButtons(); character.src = "assets/wobman.png"; requestAnimationFrame(frame);
+  syncViewport(); prepareStage(); initializeProfile(); updateAudioButtons(); character.src = "assets/wobman.png"; requestAnimationFrame(frame);
 })();

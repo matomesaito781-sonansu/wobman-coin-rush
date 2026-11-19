@@ -5,6 +5,10 @@
   const WIDTH = 960, HEIGHT = 540, DURATION = 60;
   const RADIUS = 21, BASE_SPEED = 275, STEP = 20;
   const BOUNDS = Object.freeze({ left: 42, top: 52, right: 918, bottom: 498 });
+  const LAYOUTS = Object.freeze({
+    landscape: Object.freeze({ width: WIDTH, height: HEIGHT, bounds: BOUNDS }),
+    portrait: Object.freeze({ width: 540, height: 800, bounds: Object.freeze({ left: 42, top: 52, right: 498, bottom: 758 }) })
+  });
   const TYPES = Object.freeze({
     normal: { points: 1, weight: 70, color: "#ffd04b", edge: "#b77b16", symbol: "1" },
     blue: { points: 2, weight: 15, color: "#66c6ff", edge: "#246eae", symbol: "2" },
@@ -29,6 +33,21 @@
   });
   Object.freeze(STAGES);
 
+  function projectPoint(layout, x, y) {
+    return layout === "portrait" ? { x: HEIGHT - y, y: x * LAYOUTS.portrait.height / WIDTH } : { x, y };
+  }
+  function createStage(index, layout) {
+    const source = STAGES[index] || STAGES[0], dimensions = LAYOUTS[layout];
+    const fences = layout === "portrait" ? source.fences.map(rect => ({
+      x: HEIGHT - rect.y - rect.height, y: rect.x * dimensions.height / WIDTH,
+      width: rect.height, height: rect.width * dimensions.height / WIDTH
+    })) : source.fences;
+    const ponds = layout === "portrait" ? source.ponds.map(pond => ({
+      ...projectPoint(layout, pond.x, pond.y), rx: pond.ry, ry: pond.rx * dimensions.height / WIDTH
+    })) : source.ponds;
+    return { ...source, ...dimensions, layout, fences, ponds };
+  }
+
   function circleHitsRect(x, y, radius, rect) {
     const closestX = Math.max(rect.x, Math.min(x, rect.x + rect.width));
     const closestY = Math.max(rect.y, Math.min(y, rect.y + rect.height));
@@ -38,7 +57,8 @@
     return ((x - pond.x) / (pond.rx + margin)) ** 2 + ((y - pond.y) / (pond.ry + margin)) ** 2 < 1;
   }
   function canStand(stage, x, y, radius = RADIUS) {
-    return x >= BOUNDS.left && x <= BOUNDS.right && y >= BOUNDS.top && y <= BOUNDS.bottom &&
+    const bounds = stage.bounds || BOUNDS;
+    return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom &&
       !stage.fences.some(rect => circleHitsRect(x, y, radius, rect));
   }
   function clearSegment(stage, x1, y1, x2, y2, radius = RADIUS) {
@@ -53,9 +73,10 @@
   // X/Yを個別に止める方式で発生する、角への引っかかりを防ぎます。
   function resolveMove(stage, x, y, previousX, previousY) {
     const radius = RADIUS + 0.01;
+    const bounds = stage.bounds || BOUNDS;
     for (let pass = 0; pass < 6; pass++) {
-      x = Math.max(BOUNDS.left, Math.min(BOUNDS.right, x));
-      y = Math.max(BOUNDS.top, Math.min(BOUNDS.bottom, y));
+      x = Math.max(bounds.left, Math.min(bounds.right, x));
+      y = Math.max(bounds.top, Math.min(bounds.bottom, y));
       for (const rect of stage.fences) {
         const closestX = Math.max(rect.x, Math.min(x, rect.x + rect.width));
         const closestY = Math.max(rect.y, Math.min(y, rect.y + rect.height));
@@ -83,16 +104,18 @@
   // スタート地点から到達できる格子点だけを幅優先探索で集めます。
   // 閉じた柵の内側は除外され、コインはさらに池や柵から離して配置します。
   function findReachable(stage) {
-    const columns = Math.floor((BOUNDS.right - BOUNDS.left) / STEP) + 1;
-    const rows = Math.floor((BOUNDS.bottom - BOUNDS.top) / STEP) + 1;
+    const bounds = stage.bounds || BOUNDS;
+    const center = { x: (stage.width || WIDTH) / 2, y: (stage.height || HEIGHT) / 2 };
+    const columns = Math.floor((bounds.right - bounds.left) / STEP) + 1;
+    const rows = Math.floor((bounds.bottom - bounds.top) / STEP) + 1;
     const nodes = Array.from({ length: columns * rows }, (_, index) => ({
-      x: BOUNDS.left + (index % columns) * STEP,
-      y: BOUNDS.top + Math.floor(index / columns) * STEP
+      x: bounds.left + (index % columns) * STEP,
+      y: bounds.top + Math.floor(index / columns) * STEP
     }));
     let start = -1, distance = Infinity;
     nodes.forEach((node, index) => {
-      const d = Math.hypot(node.x - WIDTH / 2, node.y - HEIGHT / 2);
-      if (d < distance && clearSegment(stage, WIDTH / 2, HEIGHT / 2, node.x, node.y)) { start = index; distance = d; }
+      const d = Math.hypot(node.x - center.x, node.y - center.y);
+      if (d < distance && clearSegment(stage, center.x, center.y, node.x, node.y)) { start = index; distance = d; }
     });
     if (start < 0) throw new Error("スタート地点に通行可能な経路がありません。");
     const queue = [start], visited = new Set(queue);
@@ -114,19 +137,37 @@
   }
 
   class World {
-    constructor(stageIndex = 0, random = Math.random) {
+    constructor(stageIndex = 0, random = Math.random, layout = "landscape") {
       this.random = random;
+      this.layout = LAYOUTS[layout] ? layout : "landscape";
       this.setStage(stageIndex);
     }
     setStage(index) {
-      this.stage = STAGES[index] || STAGES[0];
+      this.stageIndex = STAGES[index] ? index : 0;
+      this.stage = createStage(this.stageIndex, this.layout);
+      this.width = this.stage.width; this.height = this.stage.height; this.bounds = this.stage.bounds;
       this.reachable = findReachable(this.stage);
       this.spawnPoints = this.reachable.filter(point => canStand(this.stage, point.x, point.y, RADIUS + 7) && !this.stage.ponds.some(pond => insidePond(point.x, point.y, pond, 28)));
       this.reset();
     }
+    setLayout(layout) {
+      if (!LAYOUTS[layout] || layout === this.layout) return false;
+      const oldLayout = this.layout, oldPlayer = { ...this.player };
+      const saved = Object.fromEntries(["status", "score", "deadline", "remaining", "boostUntil", "slowUntil"].map(key => [key, this[key]]));
+      const base = oldLayout === "portrait" ? { x: oldPlayer.y * WIDTH / LAYOUTS.portrait.height, y: HEIGHT - oldPlayer.x } : oldPlayer;
+      this.layout = layout; this.setStage(this.stageIndex);
+      Object.assign(this, saved);
+      const mapped = projectPoint(layout, base.x, base.y);
+      const nearest = this.reachable.reduce((a, b) => Math.hypot(a.x - mapped.x, a.y - mapped.y) < Math.hypot(b.x - mapped.x, b.y - mapped.y) ? a : b);
+      const safe = clearSegment(this.stage, nearest.x, nearest.y, mapped.x, mapped.y) ? mapped : nearest;
+      Object.assign(this.player, safe, { stride: oldPlayer.stride, moving: false });
+      this.inPond = this.stage.ponds.some(pond => insidePond(this.player.x, this.player.y, pond));
+      this.coins = []; for (let i = 0; i < 8; i++) this.spawnCoin();
+      return true;
+    }
     reset() {
       this.status = "ready"; this.score = 0; this.deadline = 0; this.remaining = DURATION;
-      this.player = { x: WIDTH / 2, y: HEIGHT / 2, radius: RADIUS, moving: false, stride: 0 };
+      this.player = { x: this.width / 2, y: this.height / 2, radius: RADIUS, moving: false, stride: 0 };
       this.boostUntil = 0; this.slowUntil = 0; this.inPond = false;
       this.coins = []; this.events = []; this.spawnElapsed = 0;
       for (let i = 0; i < 8; i++) this.spawnCoin();
@@ -157,7 +198,7 @@
       if (coin.type === "speed") this.boostUntil = now + 5000; // 再取得は5秒に更新、倍率は重ねない
       this.events.push({ type: "coin", coin });
     }
-    update(rawDt, now, keys = new Set()) {
+    update(rawDt, now, keys = new Set(), analog = null) {
       this.events = [];
       if (this.status !== "playing") return;
       this.remaining = Math.max(0, (this.deadline - now) / 1000);
@@ -168,6 +209,7 @@
       const dt = Math.min(Math.max(rawDt, 0), 0.05);
       let dx = Number(keys.has("ArrowRight")) - Number(keys.has("ArrowLeft"));
       let dy = Number(keys.has("ArrowDown")) - Number(keys.has("ArrowUp"));
+      if (analog && Number.isFinite(analog.x) && Number.isFinite(analog.y) && Math.hypot(analog.x, analog.y) > 0) { dx = analog.x; dy = analog.y; }
       const length = Math.hypot(dx, dy);
       const beforeX = this.player.x, beforeY = this.player.y;
       if (length) {
@@ -193,5 +235,5 @@
       if (this.spawnElapsed >= 0.65) { this.spawnElapsed %= 0.65; this.spawnCoin(); }
     }
   }
-  window.CoinHopCore = Object.freeze({ World, STAGES, TYPES, WIDTH, HEIGHT, DURATION, BOUNDS, BASE_SPEED, RADIUS, canStand, clearSegment, insidePond });
+  window.CoinHopCore = Object.freeze({ World, STAGES, TYPES, WIDTH, HEIGHT, DURATION, BOUNDS, BASE_SPEED, RADIUS, LAYOUTS, projectPoint, canStand, clearSegment, insidePond });
 })();

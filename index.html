@@ -11,6 +11,7 @@
   <script src="game-core.js" defer></script>
   <script src="audio.js" defer></script>
   <script src="ranking.js" defer></script>
+  <script src="input.js" defer></script>
   <script src="script.js" defer></script>
 </head>
 <body>
@@ -54,8 +55,9 @@
       </div>
 
       <div class="playfield" id="playfield">
-        <canvas id="game-canvas" width="960" height="540" tabindex="0" aria-label="矢印キーでwobまんちゃんを動かし、コインを集めてください。柵は通れません。池に入ると2秒間減速します。制限時間は60秒です。"></canvas>
+        <canvas id="game-canvas" width="960" height="540" tabindex="0" aria-label="PCでは矢印キー、スマートフォンではフィールド内のドラッグでwobまんちゃんを動かします。指を離すと停止します。制限時間は60秒です。"></canvas>
         <div class="field-label" aria-hidden="true"><span></span><span id="field-name">MEADOW</span></div>
+        <div class="drag-field-hint" aria-hidden="true">ここをタッチして、行きたい方向へドラッグ</div>
         <div class="overlay" id="overlay">
           <div class="overlay-card">
             <div class="hero-coin" aria-hidden="true">★</div>
@@ -74,14 +76,9 @@
       </div>
 
       <div class="effect-bar" aria-label="現在の速度効果"><span id="speed-status">移動速度 ×1</span><span id="boost-status" class="effect boost" hidden></span><span id="slow-status" class="effect slow" hidden></span></div>
-      <div class="touch-controls" aria-label="タッチ移動ボタン">
-        <button type="button" data-direction="ArrowUp" aria-label="上に移動">↑</button>
-        <button type="button" data-direction="ArrowLeft" aria-label="左に移動">←</button>
-        <button type="button" data-direction="ArrowDown" aria-label="下に移動">↓</button>
-        <button type="button" data-direction="ArrowRight" aria-label="右に移動">→</button>
-      </div>
       <div class="game-footer">
-        <div class="controls-guide"><span class="key-group" aria-hidden="true"><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span><span>矢印キーで移動</span></div>
+        <div class="controls-guide keyboard-guide"><span class="key-group" aria-hidden="true"><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span><span>矢印キーで移動</span></div>
+        <div class="controls-guide drag-guide"><span aria-hidden="true">◎</span><span>ドラッグで移動・離すと停止</span></div>
         <button class="restart-button" id="restart-button" type="button"><span aria-hidden="true">↻</span> リスタート</button>
       </div>
     </section>
